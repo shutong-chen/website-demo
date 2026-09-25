@@ -4,38 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Robot Experiment</title>
-
 <style>
-  * {
-    box-sizing: border-box;
-  }
-
+  * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 16px;
+    padding: 16px 16px 4px;
     background: #fff;
     font-family: Arial, sans-serif;
     color: #222;
   }
-
-  main {
-    max-width: 1400px;
-    margin: auto;
-  }
-
+  main { max-width: 1400px; margin: auto; }
   .videos {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 24px;
   }
-
   h2 {
     margin: 0 0 16px;
     text-align: center;
     font-size: clamp(18px, 2.5vw, 28px);
     color: #850e4b;
   }
-
   video {
     display: block;
     width: 100%;
@@ -43,16 +32,14 @@
     object-fit: contain;
     background: #111;
   }
-
   .controls {
     display: flex;
     justify-content: center;
     align-items: center;
     flex-wrap: wrap;
     gap: 12px;
-    margin-top: 20px;
+    margin-top: 12px;
   }
-
   button {
     padding: 10px 18px;
     border: 1px solid #850e4b;
@@ -62,286 +49,182 @@
     font-size: 15px;
     cursor: pointer;
   }
-
-  button:disabled {
-    opacity: .45;
-    cursor: not-allowed;
-  }
-
-  #clock {
-    font-variant-numeric: tabular-nums;
-  }
-
-  #status {
-    text-align: center;
-    font-size: 14px;
-    color: #555;
-    min-height: 20px;
-    margin: 12px 0 0;
-  }
-
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #clock { font-variant-numeric: tabular-nums; }
   @media (max-width: 640px) {
-    .videos {
-      grid-template-columns: 1fr;
-    }
+    .videos { grid-template-columns: 1fr; }
   }
 </style>
 </head>
-
 <body>
 <main>
   <div class="videos">
     <section>
       <h2>Robot View</h2>
-      <video
-        src="sorting_rgb/robot_view.mp4"
-        muted
-        playsinline
-        preload="auto"
-        aria-label="Robot View">
-      </video>
+      <video muted playsinline preload="auto" aria-label="Robot View"></video>
     </section>
-
     <section>
       <h2>Edge View</h2>
-      <video
-        src="sorting_rgb/rgb_images.mp4"
-        muted
-        playsinline
-        preload="auto"
-        aria-label="Edge View">
-      </video>
+      <video muted playsinline preload="auto" aria-label="Edge View"></video>
     </section>
-
     <section>
       <h2>LLM Interface</h2>
-      <video
-        src="sorting_rgb/llm_conversation.mp4"
-        muted
-        playsinline
-        preload="auto"
-        aria-label="LLM Interface">
-      </video>
+      <video muted playsinline preload="auto" aria-label="LLM Interface"></video>
     </section>
   </div>
-
   <div class="controls">
     <button id="play" disabled>Play All</button>
     <button id="pause">Pause All</button>
     <button id="restart" disabled>Restart</button>
-    <span id="clock">00:00 / 00:00</span>
+    <span id="clock" title="Robot View playback time">00:00 / 00:00</span>
   </div>
-
-  <p id="status" role="status">Loading videos...</p>
 </main>
-
 <script>
 (() => {
   "use strict";
 
+  // One page per Google Sites row, selected by ?method=...
+  const VIDEO_GROUPS = {
+    sorting_rgb: [
+      "sorting_rgb/robot_view.mp4",
+      "sorting_rgb/rgb_images.mp4",
+      "sorting_rgb/llm_conversation.mp4"
+    ],
+    sorting_3dsg: [
+      "sorting_3dsg/robot_view.mp4",
+      "sorting_3dsg/3dbbox_UI.mp4",
+      "sorting_3dsg/slm_conversation.mp4"
+    ],
+    sorting_2dsg: [
+      "sorting_2dsg/robot_view.mp4",
+      "sorting_2dsg/2dsg_black_view.mp4",
+      "sorting_2dsg/slm_conversation.mp4"
+    ]
+  };
+
   const AUTO_PLAY = true;
-
+  const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
   const videos = [...document.querySelectorAll("video")];
-  const master = videos[0];
-
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
   const restartButton = document.getElementById("restart");
-  const status = document.getElementById("status");
   const clock = document.getElementById("clock");
-
-  let wanted = AUTO_PLAY;
+  let requested = AUTO_PLAY;
   let starting = false;
-  let failed = false;
   let version = 0;
 
-  videos.forEach(v => {
-    v.muted = true;
-  });
-
   const loaded = () => videos.every(v =>
-    v.readyState >= 1 &&
-    Number.isFinite(v.duration) &&
-    v.duration > 0
+    !v.error && v.readyState >= 1 &&
+    Number.isFinite(v.duration) && v.duration > 0
   );
 
-  const duration = () =>
-    Math.min(...videos.map(v => v.duration));
+  function format(seconds) {
+    const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+    return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }
 
-  const ready = () =>
-    videos.every(v => v.readyState >= 3 && !v.seeking);
+  function updateUI() {
+    playButton.disabled = !loaded() || starting || videos.every(v => v.ended);
+    restartButton.disabled = !loaded();
+    // Read Robot View's time for display only; never control other videos with it.
+    clock.textContent = `${format(videos[0].currentTime)} / ${format(videos[0].duration)}`;
+  }
 
-  const say = text => {
-    if (status.textContent !== text) {
-      status.textContent = text;
+  async function startIfReady() {
+    if (!requested || starting || !loaded()) return;
+    // Finished clips stay finished until the user explicitly clicks Restart.
+    const active = videos.filter(v => !v.ended);
+    if (!active.length) {
+      requested = false;
+      return;
     }
-  };
+    if (!active.every(v => v.readyState >= 3 && !v.seeking)) return;
 
-  const format = t => {
-    const s = Math.floor(Math.max(0, t || 0));
-    const minutes = String(Math.floor(s / 60)).padStart(2, "0");
-    const seconds = String(s % 60).padStart(2, "0");
-    return `${minutes}:${seconds}`;
-  };
+    requested = false;
+    starting = true;
+    const token = ++version;
+    updateUI();
 
-  function pauseMedia() {
-    // Ignore results from an older play request.
+    // Issue all play requests in the same JavaScript turn, not sequentially.
+    const results = await Promise.allSettled(active.map(v => {
+      try { return v.play(); }
+      catch (error) { return Promise.reject(error); }
+    }));
+    if (token !== version) return;
+    starting = false;
+    results.forEach((result, i) => {
+      if (result.status === "rejected" && result.reason?.name !== "AbortError") {
+        console.warn("Playback was not started:", active[i].src, result.reason);
+      }
+    });
+    updateUI();
+  }
+
+  function pauseAll() {
+    requested = false;
     version++;
     starting = false;
     videos.forEach(v => v.pause());
+    updateUI();
   }
 
-  function stop(message) {
-    wanted = false;
-    pauseMedia();
-    say(message);
-  }
-
-  function atEnd() {
-    return videos.some(v => v.ended) ||
-           master.currentTime >= duration();
-  }
-
-  function rewind() {
-    pauseMedia();
-    videos.forEach(v => {
-      v.currentTime = 0;
-    });
-  }
-
-  async function startTogether() {
-    if (starting || !wanted || failed) return;
-
-    starting = true;
-    const token = ++version;
-
-    try {
-      await Promise.all(videos.map(v => v.play()));
-
-      if (token === version) {
-        say("Playing - muted");
-      }
-    } catch (error) {
-      if (token === version) {
-        stop(
-          error.name === "NotAllowedError"
-            ? "Autoplay blocked. Click Play All."
-            : "Playback failed. Check the video files, then click Play All."
-        );
-      }
-    } finally {
-      if (token === version) {
-        starting = false;
-      }
-    }
-  }
-
-  function tick() {
-    const available = loaded() && !failed;
-
-    playButton.disabled = !available;
-    restartButton.disabled = !available;
-
-    if (!available) return;
-
-    clock.textContent =
-      `${format(Math.min(master.currentTime, duration()))}` +
-      ` / ${format(duration())}`;
-
-    if (!wanted) return;
-
-    if (atEnd()) {
-      stop("Finished. Click Restart to replay.");
-      return;
-    }
-
-    // Pause the group when any video seeks or runs out of data.
-    if (!ready()) {
-      if (starting || videos.some(v => !v.paused)) {
-        pauseMedia();
-      }
-
-      say("Loading / synchronizing...");
-      return;
-    }
-
-    if (starting) return;
-
-    // Align paused videos before starting the group.
-    if (videos.some(v => v.paused)) {
-      let seeking = false;
-
-      for (const v of videos.slice(1)) {
-        if (Math.abs(v.currentTime - master.currentTime) > 0.05) {
-          v.currentTime = master.currentTime;
-          seeking = true;
-        }
-      }
-
-      if (!seeking) {
-        void startTogether();
-      }
-
-      return;
-    }
-
-    // Robot View is the reference timeline.
-    // This is approximate synchronization, not frame locking.
-    for (const v of videos.slice(1)) {
-      if (Math.abs(v.currentTime - master.currentTime) > 0.15) {
-        v.currentTime = master.currentTime;
-      }
-    }
-  }
-
-  playButton.onclick = () => {
-    if (!loaded() || failed) return;
-
-    if (atEnd()) {
-      rewind();
-    }
-
-    wanted = true;
-    tick();
-  };
-
-  pauseButton.onclick = () => {
-    if (!failed) {
-      stop("Paused");
-    }
-  };
-
-  restartButton.onclick = () => {
-    if (!loaded() || failed) return;
-
-    rewind();
-    wanted = true;
-    say("Restarting...");
-    tick();
-  };
+  playButton.addEventListener("click", () => {
+    requested = true;
+    void startIfReady();
+  });
+  pauseButton.addEventListener("click", pauseAll);
+  restartButton.addEventListener("click", () => {
+    if (!loaded()) return;
+    pauseAll();
+    // This is the ONLY place that changes video positions: a user-requested restart.
+    videos.forEach(v => { v.currentTime = 0; });
+    requested = true;
+    void startIfReady();
+  });
 
   videos.forEach(v => {
-    v.addEventListener("ended", () => {
-      if (wanted) {
-        stop("Finished. Click Restart to replay.");
-      }
+    v.muted = true;
+    ["loadedmetadata", "loadeddata", "canplay", "seeked"].forEach(event => {
+      v.addEventListener(event, () => {
+        updateUI();
+        void startIfReady();
+      });
     });
-
+    // No group pause on buffering or ending, and no playback-time correction.
+    ["timeupdate", "durationchange", "ended"].forEach(event => {
+      v.addEventListener(event, updateUI);
+    });
     v.addEventListener("error", () => {
-      failed = true;
-
-      stop(
-        `Cannot load ${v.getAttribute("src")}. ` +
-        "Check the file path and video format."
-      );
-
-      playButton.disabled = true;
-      restartButton.disabled = true;
+      console.error("Cannot load video:", v.src, v.error);
+      updateUI();
     });
   });
 
-  setInterval(tick, 100);
-  tick();
+  if (Object.prototype.hasOwnProperty.call(VIDEO_GROUPS, method)) {
+    VIDEO_GROUPS[method].forEach((src, i) => { videos[i].src = src; });
+  } else {
+    requested = false;
+    console.error("Unknown video method:", method);
+  }
+  updateUI();
+  void startIfReady();
+
+  // Report content height to the accompanying embed wrapper.
+  // Only a non-sensitive size is sent; the Google Sites parent's origin varies.
+  const main = document.querySelector("main");
+  function reportHeight() {
+    if (window.parent === window) return;
+    const css = getComputedStyle(document.body);
+    const height = Math.ceil(main.getBoundingClientRect().height +
+      parseFloat(css.paddingTop) + parseFloat(css.paddingBottom));
+    window.parent.postMessage({ type: "robot-player-height", height }, "*");
+  }
+  new ResizeObserver(reportHeight).observe(main);
+  window.addEventListener("load", reportHeight);
+  window.addEventListener("message", event => {
+    if (event.source === window.parent &&
+        event.data?.type === "robot-player-request-height") reportHeight();
+  });
 })();
 </script>
 </body>
