@@ -511,7 +511,7 @@
         const url = new URL(path, document.baseURI);
         // Version the media URL so a newly deployed PowerPoint source file is
         // not mixed with an older GitHub Pages cache entry.
-        url.searchParams.set("player", "slides-parallel-cfr-v4");
+        url.searchParams.set("player", "slides-parallel-cfr-v5");
 
         const response = await fetch(url, {
           cache: "no-store",
