@@ -102,8 +102,8 @@
     ]
   };
 
-  // PowerPoint media order and trim points. Video indexes refer to the fixed
-  // on-page order: Robot, Edge, LLM.
+  // Per-video trim points. PowerPoint starts all three Image videos together
+  // after one click on the slide; video indexes are Robot, Edge, LLM.
   const PLAYBACK_ITEMS = {
     sorting_rgb: [
       { video: 0, start: 0 },
@@ -126,7 +126,7 @@
   const AUTO_PLAY = true;
   const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
   const playbackItems = PLAYBACK_ITEMS[method];
-  const sequentialPlayback = method === "sorting_rgb";
+  const sequentialPlayback = false;
   const videos = [...document.querySelectorAll("video")];
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
@@ -441,7 +441,7 @@
 
     if (state.inViewport && !document.hidden) {
       // Entering this embedded row is equivalent to entering its PowerPoint
-      // slide: Image restarts its sequence; the other rows restart together.
+      // slide: all three videos restart together.
       void resetGroup(AUTO_PLAY);
     } else {
       suspendGroup();
@@ -511,7 +511,7 @@
         const url = new URL(path, document.baseURI);
         // Version the media URL so a newly deployed PowerPoint source file is
         // not mixed with an older GitHub Pages cache entry.
-        url.searchParams.set("player", "slides-image-sequence-cfr-v2");
+        url.searchParams.set("player", "slides-parallel-cfr-v3");
 
         const response = await fetch(url, {
           cache: "no-store",
