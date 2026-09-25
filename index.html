@@ -102,9 +102,9 @@
     ]
   };
 
-  // Playback order and trim points taken from the PowerPoint slide timings.
-  // Video indexes refer to the fixed on-page order: Robot, Edge, LLM.
-  const PLAYLISTS = {
+  // Per-video trim points taken from the PowerPoint slide timings. All three
+  // videos on a slide start together; indexes are Robot, Edge, LLM.
+  const PLAYBACK_ITEMS = {
     sorting_rgb: [
       { video: 0, start: 0 },
       { video: 1, start: 0 },
@@ -122,29 +122,28 @@
     ]
   };
 
-  const VIDEO_LABELS = ["Robot View", "Edge View", "LLM Interface"];
-
   const AUTO_PLAY = true;
   const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
-  const playlist = PLAYLISTS[method];
+  const playbackItems = PLAYBACK_ITEMS[method];
   const videos = [...document.querySelectorAll("video")];
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
   const restartButton = document.getElementById("restart");
   const clock = document.getElementById("clock");
+  const main = document.querySelector("main");
   let filesDownloaded = false;
   let failed = false;
   const state = {
     phase: "loading",
-    cursor: 0,
     epoch: 0,
-    advancing: false,
-    initialized: false
+    initialized: false,
+    inViewport: false,
+    intersectionKnown: false
   };
   const objectURLs = [];
   const downloadController = new AbortController();
 
-  const loaded = () => Boolean(playlist) && filesDownloaded && !failed && videos.every(v =>
+  const loaded = () => Boolean(playbackItems) && filesDownloaded && !failed && videos.every(v =>
     !v.error && v.readyState >= 2 &&
     Number.isFinite(v.duration) && v.duration > 0
   );
@@ -152,10 +151,6 @@
   function format(seconds) {
     const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
     return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-  }
-
-  function activeItem() {
-    return playlist?.[state.cursor] || null;
   }
 
   function updateUI() {
@@ -176,23 +171,28 @@
       return;
     }
 
-    const item = activeItem();
-    if (!item) return;
+    const unfinished = videos.filter(video => !video.ended).length;
+    const elapsed = Math.max(...playbackItems.map(item =>
+      Math.max(0, videos[item.video].currentTime - item.start)
+    ));
+    const total = Math.max(...playbackItems.map(item =>
+      Math.max(0, videos[item.video].duration - item.start)
+    ));
 
-    const video = videos[item.video];
-    const elapsed = Math.max(0, video.currentTime - item.start);
-    const total = Math.max(0, video.duration - item.start);
-    const label = VIDEO_LABELS[item.video];
-    clock.textContent =
-      `${state.cursor + 1}/${playlist.length} ${label} ${format(elapsed)} / ${format(total)}`;
-    clock.title = `${label} playback time`;
+    if (state.phase === "ended") {
+      clock.textContent = `Finished · ${format(total)}`;
+      clock.title = "All three videos finished";
+    } else {
+      const status = state.phase === "paused" ? "Paused" : "Playing together";
+      clock.textContent = `${status} · ${unfinished}/3 active · ${format(elapsed)} / ${format(total)}`;
+      clock.title = "All three videos share the same playback controls";
+    }
   }
 
   function failPlayback(message, error) {
     failed = true;
     state.phase = "error";
     state.epoch++;
-    state.advancing = false;
     videos.forEach(v => v.pause());
     playButton.title = message;
     if (error) console.error(message, error);
@@ -253,83 +253,50 @@
     });
   }
 
-  async function playActive(token) {
+  async function playAll(token) {
     if (token !== state.epoch || state.phase !== "playing" || !loaded()) return;
 
-    const item = activeItem();
-    if (!item) return;
-
-    const video = videos[item.video];
-    videos.forEach((candidate, index) => {
-      if (index !== item.video) candidate.pause();
-    });
-
-    if (video.ended) {
-      advanceFrom(item.video);
+    const playable = videos.filter(video => !video.ended);
+    if (!playable.length) {
+      state.phase = "ended";
+      updateUI();
       return;
     }
 
     playButton.title = "";
     updateUI();
 
-    try {
-      await video.play();
+    // Calling play() for every video before awaiting any of the promises keeps
+    // their starts as close together as the browser allows.
+    const results = await Promise.allSettled(playable.map(video => video.play()));
 
-      // A Pause or Restart may happen before the play promise settles.
-      if (token !== state.epoch || state.phase !== "playing") {
-        video.pause();
-      }
-    } catch (error) {
-      if (token !== state.epoch) return;
-
-      videos.forEach(v => v.pause());
-      state.phase = "paused";
-      playButton.title = "Autoplay was blocked. Click Play to continue.";
-      console.warn("Sequence playback did not start.", error);
-      updateUI();
-    }
-  }
-
-  function advanceFrom(videoIndex) {
-    const item = activeItem();
-    if (
-      state.phase !== "playing" ||
-      state.advancing ||
-      !item ||
-      item.video !== videoIndex ||
-      !videos[videoIndex].ended
-    ) return;
-
-    state.advancing = true;
-
-    if (state.cursor + 1 >= playlist.length) {
-      state.epoch++;
-      state.phase = "ended";
-      state.advancing = false;
-      updateUI();
+    // A Pause or Restart may happen before the play promises settle.
+    if (token !== state.epoch || state.phase !== "playing") {
+      videos.forEach(video => video.pause());
       return;
     }
 
-    state.cursor++;
-    const token = ++state.epoch;
-    state.advancing = false;
-    updateUI();
-    void playActive(token);
+    const rejected = results.find(result => result.status === "rejected");
+    if (rejected) {
+      videos.forEach(video => video.pause());
+      state.phase = "paused";
+      playButton.title = "Autoplay was blocked. Click Play to continue.";
+      console.warn("Parallel playback did not start.", rejected.reason);
+      updateUI();
+    }
   }
 
-  async function resetSequence(shouldPlay) {
+  async function resetGroup(shouldPlay) {
     if (!loaded()) return;
 
     const token = ++state.epoch;
     state.phase = "resetting";
-    state.cursor = 0;
-    state.advancing = false;
     videos.forEach(v => v.pause());
     playButton.title = "";
     updateUI();
 
     try {
-      await Promise.all(playlist.map(item =>
+      await Promise.all(playbackItems.map(item =>
         seekVideo(videos[item.video], item.start, token)
       ));
 
@@ -337,44 +304,65 @@
 
       state.phase = shouldPlay ? "playing" : "paused";
       updateUI();
-      if (shouldPlay) await playActive(token);
+      if (shouldPlay) await playAll(token);
     } catch (error) {
       if (token !== state.epoch) return;
-      failPlayback("Could not prepare the video sequence.", error);
+      failPlayback("Could not prepare the video group.", error);
     }
   }
 
   async function initializeIfReady() {
-    if (state.initialized || !loaded()) return;
+    if (state.initialized || !loaded() || !state.intersectionKnown) return;
     state.initialized = true;
-    await resetSequence(AUTO_PLAY);
+    await resetGroup(AUTO_PLAY && state.inViewport && !document.hidden);
   }
 
-  function pauseSequence() {
+  function pauseGroup() {
     if (!loaded() || state.phase !== "playing") return;
     state.epoch++;
     state.phase = "paused";
-    state.advancing = false;
     videos.forEach(v => v.pause());
     updateUI();
+  }
+
+  function suspendGroup() {
+    if (!loaded() || ["loading", "error", "ended"].includes(state.phase)) return;
+    state.epoch++;
+    state.phase = "paused";
+    videos.forEach(v => v.pause());
+    updateUI();
+  }
+
+  function handlePagePresence() {
+    if (!loaded()) {
+      void initializeIfReady();
+      return;
+    }
+
+    if (state.inViewport && !document.hidden) {
+      // Entering this embedded row is equivalent to entering its PowerPoint
+      // slide: all three videos restart and autoplay together.
+      void resetGroup(AUTO_PLAY);
+    } else {
+      suspendGroup();
+    }
   }
 
   playButton.addEventListener("click", () => {
     if (!loaded() || state.phase !== "paused") return;
     const token = ++state.epoch;
     state.phase = "playing";
-    state.advancing = false;
     updateUI();
-    void playActive(token);
+    void playAll(token);
   });
 
-  pauseButton.addEventListener("click", pauseSequence);
+  pauseButton.addEventListener("click", pauseGroup);
 
   restartButton.addEventListener("click", () => {
-    void resetSequence(true);
+    void resetGroup(true);
   });
 
-  videos.forEach((v, index) => {
+  videos.forEach(v => {
     v.muted = true;
 
     ["loadedmetadata", "loadeddata", "canplay", "canplaythrough", "seeked"]
@@ -390,8 +378,11 @@
     });
 
     v.addEventListener("ended", () => {
+      if (state.phase === "playing" && videos.every(video => video.ended)) {
+        state.epoch++;
+        state.phase = "ended";
+      }
       updateUI();
-      advanceFrom(index);
     });
 
     v.addEventListener("error", () => {
@@ -406,7 +397,7 @@
     try {
       if (
         !Object.prototype.hasOwnProperty.call(VIDEO_GROUPS, method) ||
-        !Object.prototype.hasOwnProperty.call(PLAYLISTS, method)
+        !Object.prototype.hasOwnProperty.call(PLAYBACK_ITEMS, method)
       ) {
         throw new Error(`Unknown video method: ${method}`);
       }
@@ -417,7 +408,7 @@
         const url = new URL(path, document.baseURI);
         // Version the media URL so a newly deployed PowerPoint source file is
         // not mixed with an older GitHub Pages cache entry.
-        url.searchParams.set("player", "slides-sequence-v1");
+        url.searchParams.set("player", "slides-parallel-v1");
 
         const response = await fetch(url, {
           cache: "no-store",
@@ -460,20 +451,35 @@
   }
 
   updateUI();
+
+  const visibilityObserver = new IntersectionObserver(entries => {
+    const entry = entries[entries.length - 1];
+    const wasInViewport = state.inViewport;
+    state.intersectionKnown = true;
+    state.inViewport = entry.isIntersecting && entry.intersectionRatio >= 0.25;
+
+    if (!state.initialized) {
+      void initializeIfReady();
+    } else if (state.inViewport !== wasInViewport) {
+      handlePagePresence();
+    }
+  }, { threshold: [0, 0.25, 0.5] });
+
+  visibilityObserver.observe(main);
+  document.addEventListener("visibilitychange", handlePagePresence);
   void loadCompleteFiles();
 
   window.addEventListener("pagehide", event => {
     if (!event.persisted) {
       state.epoch++;
       videos.forEach(v => v.pause());
+      visibilityObserver.disconnect();
       downloadController.abort();
       objectURLs.forEach(url => URL.revokeObjectURL(url));
     }
   });
 
   // Preserve the existing Google Sites height-adaptation interface.
-  const main = document.querySelector("main");
-
   function reportHeight() {
     if (window.parent === window) return;
 
