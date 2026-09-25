@@ -102,8 +102,8 @@
     ]
   };
 
-  // Per-video trim points taken from the PowerPoint slide timings. All three
-  // videos on a slide start together; indexes are Robot, Edge, LLM.
+  // PowerPoint media order and trim points. Video indexes refer to the fixed
+  // on-page order: Robot, Edge, LLM.
   const PLAYBACK_ITEMS = {
     sorting_rgb: [
       { video: 0, start: 0 },
@@ -122,9 +122,11 @@
     ]
   };
 
+  const VIDEO_LABELS = ["Robot View", "Edge View", "LLM Interface"];
   const AUTO_PLAY = true;
   const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
   const playbackItems = PLAYBACK_ITEMS[method];
+  const sequentialPlayback = method === "sorting_rgb";
   const videos = [...document.querySelectorAll("video")];
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
@@ -136,6 +138,8 @@
   const state = {
     phase: "loading",
     epoch: 0,
+    cursor: 0,
+    advancing: false,
     initialized: false,
     inViewport: false,
     intersectionKnown: false
@@ -153,6 +157,10 @@
     return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   }
 
+  function activeItem() {
+    return playbackItems?.[state.cursor] || null;
+  }
+
   function updateUI() {
     const ready = loaded();
     playButton.disabled = !ready || state.phase !== "paused";
@@ -168,6 +176,30 @@
     if (!ready) {
       clock.textContent = "Loading videos...";
       clock.title = "Waiting for all three complete video files";
+      return;
+    }
+
+    if (sequentialPlayback) {
+      const item = activeItem();
+      const total = playbackItems.reduce((sum, entry) =>
+        sum + Math.max(0, videos[entry.video].duration - entry.start), 0
+      );
+
+      if (state.phase === "ended") {
+        clock.textContent = `Finished · ${format(total)}`;
+        clock.title = "PowerPoint sequence finished";
+        return;
+      }
+
+      if (!item) return;
+      const video = videos[item.video];
+      const elapsed = Math.max(0, video.currentTime - item.start);
+      const itemTotal = Math.max(0, video.duration - item.start);
+      const status = state.phase === "paused" ? "Paused" : "Playing";
+      clock.textContent =
+        `${status} · ${state.cursor + 1}/3 ${VIDEO_LABELS[item.video]} · ` +
+        `${format(elapsed)} / ${format(itemTotal)}`;
+      clock.title = "Image follows the PowerPoint Robot, Edge, LLM sequence";
       return;
     }
 
@@ -286,11 +318,77 @@
     }
   }
 
+  async function playActive(token) {
+    if (token !== state.epoch || state.phase !== "playing" || !loaded()) return;
+
+    const item = activeItem();
+    if (!item) return;
+
+    const video = videos[item.video];
+    videos.forEach((candidate, index) => {
+      if (index !== item.video) candidate.pause();
+    });
+
+    if (video.ended) {
+      advanceSequential(item.video);
+      return;
+    }
+
+    playButton.title = "";
+    updateUI();
+
+    try {
+      await video.play();
+      if (token !== state.epoch || state.phase !== "playing") video.pause();
+    } catch (error) {
+      if (token !== state.epoch) return;
+      videos.forEach(v => v.pause());
+      state.phase = "paused";
+      playButton.title = "Autoplay was blocked. Click Play to continue.";
+      console.warn("Sequential playback did not start.", error);
+      updateUI();
+    }
+  }
+
+  function playCurrentMode(token) {
+    return sequentialPlayback ? playActive(token) : playAll(token);
+  }
+
+  function advanceSequential(videoIndex) {
+    const item = activeItem();
+    if (
+      !sequentialPlayback ||
+      state.phase !== "playing" ||
+      state.advancing ||
+      !item ||
+      item.video !== videoIndex ||
+      !videos[videoIndex].ended
+    ) return;
+
+    state.advancing = true;
+
+    if (state.cursor + 1 >= playbackItems.length) {
+      state.epoch++;
+      state.phase = "ended";
+      state.advancing = false;
+      updateUI();
+      return;
+    }
+
+    state.cursor++;
+    const token = ++state.epoch;
+    state.advancing = false;
+    updateUI();
+    void playCurrentMode(token);
+  }
+
   async function resetGroup(shouldPlay) {
     if (!loaded()) return;
 
     const token = ++state.epoch;
     state.phase = "resetting";
+    state.cursor = 0;
+    state.advancing = false;
     videos.forEach(v => v.pause());
     playButton.title = "";
     updateUI();
@@ -304,7 +402,7 @@
 
       state.phase = shouldPlay ? "playing" : "paused";
       updateUI();
-      if (shouldPlay) await playAll(token);
+      if (shouldPlay) await playCurrentMode(token);
     } catch (error) {
       if (token !== state.epoch) return;
       failPlayback("Could not prepare the video group.", error);
@@ -321,6 +419,7 @@
     if (!loaded() || state.phase !== "playing") return;
     state.epoch++;
     state.phase = "paused";
+    state.advancing = false;
     videos.forEach(v => v.pause());
     updateUI();
   }
@@ -329,6 +428,7 @@
     if (!loaded() || ["loading", "error", "ended"].includes(state.phase)) return;
     state.epoch++;
     state.phase = "paused";
+    state.advancing = false;
     videos.forEach(v => v.pause());
     updateUI();
   }
@@ -341,7 +441,7 @@
 
     if (state.inViewport && !document.hidden) {
       // Entering this embedded row is equivalent to entering its PowerPoint
-      // slide: all three videos restart and autoplay together.
+      // slide: Image restarts its sequence; the other rows restart together.
       void resetGroup(AUTO_PLAY);
     } else {
       suspendGroup();
@@ -352,8 +452,9 @@
     if (!loaded() || state.phase !== "paused") return;
     const token = ++state.epoch;
     state.phase = "playing";
+    state.advancing = false;
     updateUI();
-    void playAll(token);
+    void playCurrentMode(token);
   });
 
   pauseButton.addEventListener("click", pauseGroup);
@@ -362,7 +463,7 @@
     void resetGroup(true);
   });
 
-  videos.forEach(v => {
+  videos.forEach((v, index) => {
     v.muted = true;
 
     ["loadedmetadata", "loadeddata", "canplay", "canplaythrough", "seeked"]
@@ -378,7 +479,9 @@
     });
 
     v.addEventListener("ended", () => {
-      if (state.phase === "playing" && videos.every(video => video.ended)) {
+      if (sequentialPlayback) {
+        advanceSequential(index);
+      } else if (state.phase === "playing" && videos.every(video => video.ended)) {
         state.epoch++;
         state.phase = "ended";
       }
@@ -408,7 +511,7 @@
         const url = new URL(path, document.baseURI);
         // Version the media URL so a newly deployed PowerPoint source file is
         // not mixed with an older GitHub Pages cache entry.
-        url.searchParams.set("player", "slides-parallel-v1");
+        url.searchParams.set("player", "slides-image-sequence-cfr-v2");
 
         const response = await fetch(url, {
           cache: "no-store",
