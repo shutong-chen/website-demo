@@ -112,8 +112,13 @@
   let requested = AUTO_PLAY;
   let starting = false;
   let version = 0;
+  let filesDownloaded = false;
+  let failed = false;
+  let needsRestart = false;
+  const objectURLs = [];
+  const downloadController = new AbortController();
 
-  const loaded = () => videos.every(v =>
+  const loaded = () => filesDownloaded && !failed && videos.every(v =>
     !v.error && v.readyState >= 1 &&
     Number.isFinite(v.duration) && v.duration > 0
   );
@@ -124,40 +129,52 @@
   }
 
   function updateUI() {
-    playButton.disabled = !loaded() || starting || videos.every(v => v.ended);
+    playButton.disabled = !loaded() || starting || needsRestart || videos.every(v => v.ended);
     restartButton.disabled = !loaded();
-    // Read Robot View's time for display only; never control other videos with it.
-    clock.textContent = `${format(videos[0].currentTime)} / ${format(videos[0].duration)}`;
+
+    // Display only. This value never controls the other videos.
+    clock.textContent =
+      `${format(videos[0].currentTime)} / ${format(videos[0].duration)}`;
   }
 
   async function startIfReady() {
-    if (!requested || starting || !loaded()) return;
-    // Finished clips stay finished until the user explicitly clicks Restart.
+    if (!requested || starting || needsRestart || !loaded()) return;
+
+    // Finished clips stay finished until the user clicks Restart.
     const active = videos.filter(v => !v.ended);
     if (!active.length) {
       requested = false;
       return;
     }
-    if (!active.every(v => v.readyState >= 3 && !v.seeking)) return;
+    if (!active.every(v => v.readyState >= 4 && !v.seeking)) return;
 
     requested = false;
     starting = true;
     const token = ++version;
     updateUI();
 
-    // Issue all play requests in the same JavaScript turn, not sequentially.
-    const results = await Promise.allSettled(active.map(v => {
+    // Issue every play request before awaiting any of them.
+    const jobs = active.map(v => {
       try { return v.play(); }
       catch (error) { return Promise.reject(error); }
-    }));
-    if (token !== version) return;
-    starting = false;
-    results.forEach((result, i) => {
-      if (result.status === "rejected" && result.reason?.name !== "AbortError") {
-        console.warn("Playback was not started:", active[i].src, result.reason);
-      }
     });
-    updateUI();
+
+    try {
+      await Promise.all(jobs);
+    } catch (error) {
+      if (token !== version) return;
+
+      // A failed launch is not a successful group start.
+      // Never seek or change playback speed to repair it.
+      pauseAll();
+      needsRestart = true;
+      playButton.title = "Playback did not start for every video. Click Restart.";
+      restartButton.title = "Start all three videos again from the beginning.";
+      console.warn("Group start failed. Click Restart.", error);
+    } finally {
+      if (token === version) starting = false;
+      updateUI();
+    }
   }
 
   function pauseAll() {
@@ -172,58 +189,148 @@
     requested = true;
     void startIfReady();
   });
+
   pauseButton.addEventListener("click", pauseAll);
+
   restartButton.addEventListener("click", () => {
     if (!loaded()) return;
+
     pauseAll();
-    // This is the ONLY place that changes video positions: a user-requested restart.
+    needsRestart = false;
+    playButton.title = "";
+
+    // The ONLY playback-position assignment in this player.
+    // It runs only when the user explicitly clicks Restart.
     videos.forEach(v => { v.currentTime = 0; });
+
     requested = true;
     void startIfReady();
   });
 
   videos.forEach(v => {
     v.muted = true;
-    ["loadedmetadata", "loadeddata", "canplay", "seeked"].forEach(event => {
-      v.addEventListener(event, () => {
-        updateUI();
-        void startIfReady();
+
+    ["loadedmetadata", "loadeddata", "canplay", "canplaythrough", "seeked"]
+      .forEach(event => {
+        v.addEventListener(event, () => {
+          updateUI();
+          void startIfReady();
+        });
       });
-    });
-    // No group pause on buffering or ending, and no playback-time correction.
+
+    // No group pause on buffering or ending.
+    // No progress correction or playback-speed adjustment.
     ["timeupdate", "durationchange", "ended"].forEach(event => {
       v.addEventListener(event, updateUI);
     });
+
     v.addEventListener("error", () => {
+      failed = true;
+      requested = false;
+      playButton.title = "Video decoding failed. Check the file and browser.";
       console.error("Cannot load video:", v.src, v.error);
       updateUI();
     });
   });
 
-  if (Object.prototype.hasOwnProperty.call(VIDEO_GROUPS, method)) {
-    VIDEO_GROUPS[method].forEach((src, i) => { videos[i].src = src; });
-  } else {
-    requested = false;
-    console.error("Unknown video method:", method);
-  }
-  updateUI();
-  void startIfReady();
+  // Download complete original files before assigning any video source.
+  async function loadCompleteFiles() {
+    const timeout = setTimeout(() => downloadController.abort(), 180000);
 
-  // Report content height to the accompanying embed wrapper.
-  // Only a non-sensitive size is sent; the Google Sites parent's origin varies.
+    try {
+      if (!Object.prototype.hasOwnProperty.call(VIDEO_GROUPS, method)) {
+        throw new Error(`Unknown video method: ${method}`);
+      }
+
+      playButton.title = "Waiting for all three complete video files.";
+
+      const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
+        const url = new URL(path, document.baseURI);
+        url.searchParams.set("player", "full-load-v4");
+
+        const response = await fetch(url, {
+          cache: "no-store",
+          signal: downloadController.signal
+        });
+
+        if (!response.ok) {
+          throw new Error(`${path}: HTTP ${response.status}`);
+        }
+
+        // This resolves only after the entire response body has been read.
+        const blob = await response.blob();
+
+        if (!blob.size || blob.type.includes("text/html")) {
+          throw new Error(`${path}: empty file or HTML instead of MP4`);
+        }
+
+        return blob;
+      }));
+
+      // Use the original downloaded bytes without re-encoding.
+      const urls = blobs.map(blob => URL.createObjectURL(blob));
+      objectURLs.push(...urls);
+      filesDownloaded = true;
+
+      urls.forEach((url, i) => {
+        videos[i].src = url;
+        videos[i].load();
+      });
+
+      playButton.title = "";
+      updateUI();
+      void startIfReady();
+    } catch (error) {
+      failed = true;
+      requested = false;
+      downloadController.abort();
+      playButton.title = "Loading failed. Reload this page to retry.";
+      console.error("Complete video download failed:", error);
+      updateUI();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  updateUI();
+  void loadCompleteFiles();
+
+  window.addEventListener("pagehide", event => {
+    if (!event.persisted) {
+      downloadController.abort();
+      objectURLs.forEach(url => URL.revokeObjectURL(url));
+    }
+  });
+
+  // Preserve the existing Google Sites height-adaptation interface.
   const main = document.querySelector("main");
+
   function reportHeight() {
     if (window.parent === window) return;
+
     const css = getComputedStyle(document.body);
-    const height = Math.ceil(main.getBoundingClientRect().height +
-      parseFloat(css.paddingTop) + parseFloat(css.paddingBottom));
-    window.parent.postMessage({ type: "robot-player-height", height }, "*");
+    const height = Math.ceil(
+      main.getBoundingClientRect().height +
+      parseFloat(css.paddingTop) +
+      parseFloat(css.paddingBottom)
+    );
+
+    window.parent.postMessage({
+      type: "robot-player-height",
+      height
+    }, "*");
   }
+
   new ResizeObserver(reportHeight).observe(main);
   window.addEventListener("load", reportHeight);
+
   window.addEventListener("message", event => {
-    if (event.source === window.parent &&
-        event.data?.type === "robot-player-request-height") reportHeight();
+    if (
+      event.source === window.parent &&
+      event.data?.type === "robot-player-request-height"
+    ) {
+      reportHeight();
+    }
   });
 })();
 </script>
