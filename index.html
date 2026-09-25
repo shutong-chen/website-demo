@@ -73,10 +73,10 @@
     </section>
   </div>
   <div class="controls">
-    <button id="play" disabled>Play All</button>
-    <button id="pause">Pause All</button>
+    <button id="play" disabled>Play</button>
+    <button id="pause" disabled>Pause</button>
     <button id="restart" disabled>Restart</button>
-    <span id="clock" title="Robot View playback time">00:00 / 00:00</span>
+    <span id="clock">Loading videos...</span>
   </div>
 </main>
 <script>
@@ -102,24 +102,50 @@
     ]
   };
 
+  // Playback order and trim points taken from the PowerPoint slide timings.
+  // Video indexes refer to the fixed on-page order: Robot, Edge, LLM.
+  const PLAYLISTS = {
+    sorting_rgb: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
+    sorting_2dsg: [
+      { video: 2, start: 2.2652687 },
+      { video: 0, start: 0 },
+      { video: 1, start: 2.2620996 }
+    ],
+    sorting_3dsg: [
+      { video: 1, start: 0 },
+      { video: 0, start: 0 },
+      { video: 2, start: 0 }
+    ]
+  };
+
+  const VIDEO_LABELS = ["Robot View", "Edge View", "LLM Interface"];
+
   const AUTO_PLAY = true;
   const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
+  const playlist = PLAYLISTS[method];
   const videos = [...document.querySelectorAll("video")];
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
   const restartButton = document.getElementById("restart");
   const clock = document.getElementById("clock");
-  let requested = AUTO_PLAY;
-  let starting = false;
-  let version = 0;
   let filesDownloaded = false;
   let failed = false;
-  let needsRestart = false;
+  const state = {
+    phase: "loading",
+    cursor: 0,
+    epoch: 0,
+    advancing: false,
+    initialized: false
+  };
   const objectURLs = [];
   const downloadController = new AbortController();
 
-  const loaded = () => filesDownloaded && !failed && videos.every(v =>
-    !v.error && v.readyState >= 1 &&
+  const loaded = () => Boolean(playlist) && filesDownloaded && !failed && videos.every(v =>
+    !v.error && v.readyState >= 2 &&
     Number.isFinite(v.duration) && v.duration > 0
   );
 
@@ -128,108 +154,248 @@
     return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   }
 
-  function updateUI() {
-    playButton.disabled = !loaded() || starting || needsRestart || videos.every(v => v.ended);
-    restartButton.disabled = !loaded();
-
-    // Display only. This value never controls the other videos.
-    clock.textContent =
-      `${format(videos[0].currentTime)} / ${format(videos[0].duration)}`;
+  function activeItem() {
+    return playlist?.[state.cursor] || null;
   }
 
-  async function startIfReady() {
-    if (!requested || starting || needsRestart || !loaded()) return;
+  function updateUI() {
+    const ready = loaded();
+    playButton.disabled = !ready || state.phase !== "paused";
+    pauseButton.disabled = !ready || state.phase !== "playing";
+    restartButton.disabled = !ready || state.phase === "resetting";
 
-    // Finished clips stay finished until the user clicks Restart.
-    const active = videos.filter(v => !v.ended);
-    if (!active.length) {
-      requested = false;
+    if (failed || state.phase === "error") {
+      clock.textContent = "Playback error";
+      clock.title = "Playback error";
       return;
     }
-    if (!active.every(v => v.readyState >= 4 && !v.seeking)) return;
 
-    requested = false;
-    starting = true;
-    const token = ++version;
+    if (!ready) {
+      clock.textContent = "Loading videos...";
+      clock.title = "Waiting for all three complete video files";
+      return;
+    }
+
+    const item = activeItem();
+    if (!item) return;
+
+    const video = videos[item.video];
+    const elapsed = Math.max(0, video.currentTime - item.start);
+    const total = Math.max(0, video.duration - item.start);
+    const label = VIDEO_LABELS[item.video];
+    clock.textContent =
+      `${state.cursor + 1}/${playlist.length} ${label} ${format(elapsed)} / ${format(total)}`;
+    clock.title = `${label} playback time`;
+  }
+
+  function failPlayback(message, error) {
+    failed = true;
+    state.phase = "error";
+    state.epoch++;
+    state.advancing = false;
+    videos.forEach(v => v.pause());
+    playButton.title = message;
+    if (error) console.error(message, error);
     updateUI();
+  }
 
-    // Issue every play request before awaiting any of them.
-    const jobs = active.map(v => {
-      try { return v.play(); }
-      catch (error) { return Promise.reject(error); }
+  function seekVideo(video, seconds, token) {
+    return new Promise((resolve, reject) => {
+      if (token !== state.epoch) {
+        resolve(false);
+        return;
+      }
+
+      if (!Number.isFinite(video.duration) || seconds < 0 || seconds >= video.duration) {
+        reject(new Error(`Invalid start time ${seconds} for ${video.duration}s video.`));
+        return;
+      }
+
+      const target = seconds;
+      if (!video.seeking && Math.abs(video.currentTime - target) < 0.01) {
+        resolve(true);
+        return;
+      }
+
+      let settled = false;
+      const timeout = setTimeout(() => finish(new Error("Timed out while seeking video.")), 10000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        video.removeEventListener("seeked", onSeeked);
+        video.removeEventListener("error", onError);
+      }
+
+      function finish(error) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) reject(error);
+        else resolve(token === state.epoch);
+      }
+
+      function onSeeked() {
+        finish();
+      }
+
+      function onError() {
+        finish(new Error("Video failed while seeking."));
+      }
+
+      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("error", onError);
+
+      try {
+        video.currentTime = target;
+      } catch (error) {
+        finish(error);
+      }
+    });
+  }
+
+  async function playActive(token) {
+    if (token !== state.epoch || state.phase !== "playing" || !loaded()) return;
+
+    const item = activeItem();
+    if (!item) return;
+
+    const video = videos[item.video];
+    videos.forEach((candidate, index) => {
+      if (index !== item.video) candidate.pause();
     });
 
-    try {
-      await Promise.all(jobs);
-    } catch (error) {
-      if (token !== version) return;
+    if (video.ended) {
+      advanceFrom(item.video);
+      return;
+    }
 
-      // A failed launch is not a successful group start.
-      // Never seek or change playback speed to repair it.
-      pauseAll();
-      needsRestart = true;
-      playButton.title = "Playback did not start for every video. Click Restart.";
-      restartButton.title = "Start all three videos again from the beginning.";
-      console.warn("Group start failed. Click Restart.", error);
-    } finally {
-      if (token === version) starting = false;
+    playButton.title = "";
+    updateUI();
+
+    try {
+      await video.play();
+
+      // A Pause or Restart may happen before the play promise settles.
+      if (token !== state.epoch || state.phase !== "playing") {
+        video.pause();
+      }
+    } catch (error) {
+      if (token !== state.epoch) return;
+
+      videos.forEach(v => v.pause());
+      state.phase = "paused";
+      playButton.title = "Autoplay was blocked. Click Play to continue.";
+      console.warn("Sequence playback did not start.", error);
       updateUI();
     }
   }
 
-  function pauseAll() {
-    requested = false;
-    version++;
-    starting = false;
+  function advanceFrom(videoIndex) {
+    const item = activeItem();
+    if (
+      state.phase !== "playing" ||
+      state.advancing ||
+      !item ||
+      item.video !== videoIndex ||
+      !videos[videoIndex].ended
+    ) return;
+
+    state.advancing = true;
+
+    if (state.cursor + 1 >= playlist.length) {
+      state.epoch++;
+      state.phase = "ended";
+      state.advancing = false;
+      updateUI();
+      return;
+    }
+
+    state.cursor++;
+    const token = ++state.epoch;
+    state.advancing = false;
+    updateUI();
+    void playActive(token);
+  }
+
+  async function resetSequence(shouldPlay) {
+    if (!loaded()) return;
+
+    const token = ++state.epoch;
+    state.phase = "resetting";
+    state.cursor = 0;
+    state.advancing = false;
+    videos.forEach(v => v.pause());
+    playButton.title = "";
+    updateUI();
+
+    try {
+      await Promise.all(playlist.map(item =>
+        seekVideo(videos[item.video], item.start, token)
+      ));
+
+      if (token !== state.epoch) return;
+
+      state.phase = shouldPlay ? "playing" : "paused";
+      updateUI();
+      if (shouldPlay) await playActive(token);
+    } catch (error) {
+      if (token !== state.epoch) return;
+      failPlayback("Could not prepare the video sequence.", error);
+    }
+  }
+
+  async function initializeIfReady() {
+    if (state.initialized || !loaded()) return;
+    state.initialized = true;
+    await resetSequence(AUTO_PLAY);
+  }
+
+  function pauseSequence() {
+    if (!loaded() || state.phase !== "playing") return;
+    state.epoch++;
+    state.phase = "paused";
+    state.advancing = false;
     videos.forEach(v => v.pause());
     updateUI();
   }
 
   playButton.addEventListener("click", () => {
-    requested = true;
-    void startIfReady();
+    if (!loaded() || state.phase !== "paused") return;
+    const token = ++state.epoch;
+    state.phase = "playing";
+    state.advancing = false;
+    updateUI();
+    void playActive(token);
   });
 
-  pauseButton.addEventListener("click", pauseAll);
+  pauseButton.addEventListener("click", pauseSequence);
 
   restartButton.addEventListener("click", () => {
-    if (!loaded()) return;
-
-    pauseAll();
-    needsRestart = false;
-    playButton.title = "";
-
-    // The ONLY playback-position assignment in this player.
-    // It runs only when the user explicitly clicks Restart.
-    videos.forEach(v => { v.currentTime = 0; });
-
-    requested = true;
-    void startIfReady();
+    void resetSequence(true);
   });
 
-  videos.forEach(v => {
+  videos.forEach((v, index) => {
     v.muted = true;
 
     ["loadedmetadata", "loadeddata", "canplay", "canplaythrough", "seeked"]
       .forEach(event => {
         v.addEventListener(event, () => {
           updateUI();
-          void startIfReady();
+          void initializeIfReady();
         });
       });
 
-    // No group pause on buffering or ending.
-    // No progress correction or playback-speed adjustment.
-    ["timeupdate", "durationchange", "ended"].forEach(event => {
+    ["timeupdate", "durationchange"].forEach(event => {
       v.addEventListener(event, updateUI);
     });
 
-    v.addEventListener("error", () => {
-      failed = true;
-      requested = false;
-      playButton.title = "Video decoding failed. Check the file and browser.";
-      console.error("Cannot load video:", v.src, v.error);
+    v.addEventListener("ended", () => {
       updateUI();
+      advanceFrom(index);
+    });
+
+    v.addEventListener("error", () => {
+      failPlayback("Video decoding failed. Check the file and browser.", v.error);
     });
   });
 
@@ -238,7 +404,10 @@
     const timeout = setTimeout(() => downloadController.abort(), 180000);
 
     try {
-      if (!Object.prototype.hasOwnProperty.call(VIDEO_GROUPS, method)) {
+      if (
+        !Object.prototype.hasOwnProperty.call(VIDEO_GROUPS, method) ||
+        !Object.prototype.hasOwnProperty.call(PLAYLISTS, method)
+      ) {
         throw new Error(`Unknown video method: ${method}`);
       }
 
@@ -246,7 +415,9 @@
 
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
-        url.searchParams.set("player", "full-load-v4");
+        // Version the media URL so a newly deployed PowerPoint source file is
+        // not mixed with an older GitHub Pages cache entry.
+        url.searchParams.set("player", "slides-sequence-v1");
 
         const response = await fetch(url, {
           cache: "no-store",
@@ -279,14 +450,10 @@
 
       playButton.title = "";
       updateUI();
-      void startIfReady();
+      void initializeIfReady();
     } catch (error) {
-      failed = true;
-      requested = false;
       downloadController.abort();
-      playButton.title = "Loading failed. Reload this page to retry.";
-      console.error("Complete video download failed:", error);
-      updateUI();
+      failPlayback("Loading failed. Reload this page to retry.", error);
     } finally {
       clearTimeout(timeout);
     }
@@ -297,6 +464,8 @@
 
   window.addEventListener("pagehide", event => {
     if (!event.persisted) {
+      state.epoch++;
+      videos.forEach(v => v.pause());
       downloadController.abort();
       objectURLs.forEach(url => URL.revokeObjectURL(url));
     }
