@@ -19,6 +19,9 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 24px;
   }
+  body.rgb-method .videos {
+    grid-template-columns: minmax(0, 870fr) minmax(0, 870fr) minmax(0, 752fr);
+  }
   h2 {
     margin: 0 0 16px;
     text-align: center;
@@ -33,6 +36,8 @@
     background: #111;
   }
   body.rgb-method video { background: #fff; }
+  body.rgb-method .videos section:nth-child(-n+2) video { aspect-ratio: 870 / 652; }
+  body.rgb-method .videos section:nth-child(3) video { aspect-ratio: 752 / 652; }
   body.hide-labels h2 { display: none; }
   .controls {
     display: flex;
@@ -55,6 +60,7 @@
   #clock { font-variant-numeric: tabular-nums; }
   @media (max-width: 640px) {
     .videos { grid-template-columns: 1fr; }
+    body.rgb-method .videos { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -129,7 +135,12 @@
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
   if (method === "sorting_rgb") document.body.classList.add("rgb-method");
-  if (params.get("labels") === "0") document.body.classList.add("hide-labels");
+  if (params.get("labels") === "0" && method !== "sorting_rgb") document.body.classList.add("hide-labels");
+  if (method === "sorting_rgb") {
+    const vlm = document.querySelector(".videos section:nth-child(3)");
+    vlm.querySelector("h2").textContent = "VLM Interface";
+    vlm.querySelector("video").setAttribute("aria-label", "VLM Interface");
+  }
   const playbackItems = PLAYBACK_ITEMS[method];
   const sequentialPlayback = false;
   const videos = [...document.querySelectorAll("video")];
@@ -215,6 +226,12 @@
     const total = Math.max(...playbackItems.map(item =>
       Math.max(0, videos[item.video].duration - item.start)
     ));
+
+    if (method === "sorting_rgb") {
+      clock.textContent = `${format(state.phase === "ended" ? total : elapsed)} / ${format(total)}`;
+      clock.title = "Playback time";
+      return;
+    }
 
     if (state.phase === "ended") {
       clock.textContent = `Finished · ${format(total)}`;
