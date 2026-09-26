@@ -531,8 +531,10 @@
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
         // Avoid mixing newly replaced Image media with an older Pages cache.
-        url.searchParams.set("player", method === "sorting_rgb"
-          ? "landscape-crops-v1" : "slides-parallel-cfr-v5");
+        const cacheVersion = method === "sorting_rgb"
+          ? (path.endsWith("/llm_conversation.mp4") ? "vlm-hq-v1" : "landscape-crops-v1")
+          : "slides-parallel-cfr-v5";
+        url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
           cache: "no-store",
