@@ -32,12 +32,8 @@
     object-fit: contain;
     background: #111;
   }
-  .videos.single-media { column-gap: 0; row-gap: 16px; }
-  .videos.single-media h2 { margin-bottom: 0; }
-  .videos.single-media > video {
-    grid-column: 1 / -1;
-    aspect-ratio: 4 / 1;
-  }
+  body.rgb-method video { background: #fff; }
+  body.hide-labels h2 { display: none; }
   .controls {
     display: flex;
     justify-content: center;
@@ -59,7 +55,6 @@
   #clock { font-variant-numeric: tabular-nums; }
   @media (max-width: 640px) {
     .videos { grid-template-columns: 1fr; }
-    .videos.single-media { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
 </style>
 </head>
@@ -93,7 +88,9 @@
   // One page per Google Sites row, selected by ?method=...
   const VIDEO_GROUPS = {
     sorting_rgb: [
-      "sorting_rgb/ppt_recorded_triptych.mp4"
+      "sorting_rgb/robot_view.mp4",
+      "sorting_rgb/rgb_images.mp4",
+      "sorting_rgb/llm_conversation.mp4"
     ],
     sorting_3dsg: [
       "sorting_3dsg/robot_view.mp4",
@@ -107,11 +104,13 @@
     ]
   };
 
-  // PowerPoint's three Image videos are captured into one synchronized file.
-  // The other methods retain their existing three-video playback settings.
+  // Each Image view is cropped from the same PowerPoint screen recording.
+  // Keep the shared recording timeline, including its original visual lag.
   const PLAYBACK_ITEMS = {
     sorting_rgb: [
-      { video: 0, start: 0 }
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
     ],
     sorting_2dsg: [
       { video: 2, start: 2.2652687 },
@@ -127,20 +126,12 @@
 
   const VIDEO_LABELS = ["Robot View", "Edge View", "LLM Interface"];
   const AUTO_PLAY = true;
-  const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
+  const params = new URLSearchParams(location.search);
+  const method = params.get("method") || "sorting_rgb";
+  if (method === "sorting_rgb") document.body.classList.add("rgb-method");
+  if (params.get("labels") === "0") document.body.classList.add("hide-labels");
   const playbackItems = PLAYBACK_ITEMS[method];
   const sequentialPlayback = false;
-  if (method === "sorting_rgb") {
-    const grid = document.querySelector(".videos");
-    grid.classList.add("single-media");
-    grid.querySelectorAll("section video").forEach(video => video.remove());
-    const composite = document.createElement("video");
-    composite.muted = true;
-    composite.playsInline = true;
-    composite.preload = "auto";
-    composite.setAttribute("aria-label", "Synchronized Robot View, Edge View, and LLM Interface");
-    grid.append(composite);
-  }
   const videos = [...document.querySelectorAll("video")];
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
@@ -188,7 +179,7 @@
     }
 
     if (!ready) {
-      clock.textContent = videos.length === 1 ? "Loading video..." : "Loading videos...";
+      clock.textContent = "Loading videos...";
       clock.title = "Waiting for video data";
       return;
     }
@@ -231,7 +222,7 @@
     } else {
       const status = state.phase === "paused" ? "Paused" : "Playing";
       clock.textContent = `${status} · ${unfinished}/${videos.length} active · ${format(elapsed)} / ${format(total)}`;
-      clock.title = videos.length === 1 ? "One synchronized video" : "Shared playback controls";
+      clock.title = "Shared playback controls";
     }
   }
 
@@ -312,7 +303,7 @@
     playButton.title = "";
     updateUI();
 
-    // Other methods still start their three videos as closely as possible.
+    // Issue every play request before awaiting any of them.
     const results = await Promise.allSettled(playable.map(video => video.play()));
 
     // A Pause or Restart may happen before the play promises settle.
@@ -506,8 +497,7 @@
     });
   });
 
-  // Stream the single fast-start MP4 progressively. Other methods keep their
-  // previous full-download behavior to avoid changing their playback timing.
+  // Fully download all three videos before starting the group.
   async function loadCompleteFiles() {
     const timeout = setTimeout(() => downloadController.abort(), 180000);
 
@@ -521,21 +511,11 @@
 
       playButton.title = "Waiting for video data.";
 
-      if (method === "sorting_rgb") {
-        const url = new URL(VIDEO_GROUPS[method][0], document.baseURI);
-        url.searchParams.set("player", "ppt-recorded-triptych-v1");
-        videos[0].src = url.href;
-        sourcesReady = true;
-        videos[0].load();
-        updateUI();
-        return;
-      }
-
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
-        // Version the media URL so a newly deployed PowerPoint source file is
-        // not mixed with an older GitHub Pages cache entry.
-        url.searchParams.set("player", "slides-parallel-cfr-v5");
+        // Avoid mixing newly replaced Image media with an older Pages cache.
+        url.searchParams.set("player", method === "sorting_rgb"
+          ? "landscape-crops-v1" : "slides-parallel-cfr-v5");
 
         const response = await fetch(url, {
           cache: "no-store",
