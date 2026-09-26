@@ -117,13 +117,12 @@
     ],
     sorting_2dsg: [
       "sorting_2dsg/robot_view.mp4",
-      "sorting_2dsg/2dsg_black_view.mp4",
+      "sorting_2dsg/edge_view.mp4",
       "sorting_2dsg/slm_conversation.mp4"
     ]
   };
 
-  // Each Image view is cropped from the same PowerPoint screen recording.
-  // Keep the shared recording timeline, including its original visual lag.
+  // Keep each method's three media streams on their shared playback timeline.
   const PLAYBACK_ITEMS = {
     sorting_rgb: [
       { video: 0, start: 0 },
@@ -131,9 +130,9 @@
       { video: 2, start: 0 }
     ],
     sorting_2dsg: [
-      { video: 2, start: 2.2652687 },
       { video: 0, start: 0 },
-      { video: 1, start: 2.2620996 }
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
     ],
     sorting_3dsg: [
       { video: 1, start: 0 },
@@ -601,7 +600,7 @@
         // Avoid mixing newly replaced Image media with an older Pages cache.
         const cacheVersion = method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
-          : "slides-parallel-cfr-v5";
+          : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "slides-parallel-cfr-v5");
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
