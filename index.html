@@ -58,6 +58,21 @@
   }
   button:disabled { opacity: .45; cursor: not-allowed; }
   #clock { font-variant-numeric: tabular-nums; }
+  .seek-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .seek-row[hidden] { display: none; }
+  #seek {
+    flex: 1;
+    min-width: 0;
+    accent-color: #850e4b;
+    cursor: pointer;
+  }
+  #seek:disabled { opacity: .45; cursor: default; }
+  .seek-row #clock { flex: none; white-space: nowrap; }
   @media (max-width: 640px) {
     .videos { grid-template-columns: 1fr; }
     body.rgb-method .videos { grid-template-columns: 1fr; }
@@ -79,6 +94,10 @@
       <h2>LLM Interface</h2>
       <video muted playsinline preload="auto" aria-label="LLM Interface"></video>
     </section>
+  </div>
+  <div class="seek-row" id="seek-row" hidden>
+    <input id="seek" type="range" min="0" max="100" step="0.01" value="0"
+           disabled aria-label="Video playback position">
   </div>
   <div class="controls">
     <button id="play" disabled>Play</button>
@@ -147,10 +166,18 @@
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
   const restartButton = document.getElementById("restart");
+  const seekRow = document.getElementById("seek-row");
+  const seekInput = document.getElementById("seek");
   const clock = document.getElementById("clock");
   const main = document.querySelector("main");
+  if (method === "sorting_rgb") {
+    seekRow.hidden = false;
+    seekRow.append(clock);
+  }
   let sourcesReady = false;
   let failed = false;
+  let seekPreview = null;
+  let resumeAfterSeek = false;
   const state = {
     phase: "loading",
     epoch: 0,
@@ -179,9 +206,13 @@
 
   function updateUI() {
     const ready = loaded();
-    playButton.disabled = !ready || state.phase !== "paused";
-    pauseButton.disabled = !ready || state.phase !== "playing";
-    restartButton.disabled = !ready || state.phase === "resetting";
+    const previewing = seekPreview !== null;
+    playButton.disabled = !ready || previewing || state.phase !== "paused";
+    pauseButton.disabled = !ready || previewing || state.phase !== "playing";
+    restartButton.disabled = !ready || previewing || state.phase === "resetting";
+    if (method === "sorting_rgb") {
+      seekInput.disabled = !ready || state.phase === "resetting";
+    }
 
     if (failed || state.phase === "error") {
       clock.textContent = "Playback error";
@@ -228,7 +259,11 @@
     ));
 
     if (method === "sorting_rgb") {
-      clock.textContent = `${format(state.phase === "ended" ? total : elapsed)} / ${format(total)}`;
+      const shown = previewing ? seekPreview : (state.phase === "ended" ? total : elapsed);
+      seekInput.max = String(total);
+      if (!previewing) seekInput.value = String(Math.min(shown, total));
+      seekInput.setAttribute("aria-valuetext", `${format(shown)} of ${format(total)}`);
+      clock.textContent = `${format(shown)} / ${format(total)}`;
       clock.title = "Playback time";
       return;
     }
@@ -445,6 +480,48 @@
     updateUI();
   }
 
+  function previewSeek() {
+    if (method !== "sorting_rgb" || !loaded() || state.phase === "resetting") return;
+
+    if (seekPreview === null) {
+      resumeAfterSeek = state.phase === "playing";
+      state.epoch++;
+      state.phase = "paused";
+      state.advancing = false;
+      videos.forEach(video => video.pause());
+    }
+
+    seekPreview = Number(seekInput.value);
+    updateUI();
+  }
+
+  async function commitSeek() {
+    if (seekPreview === null || !loaded()) return;
+
+    const requested = seekPreview;
+    const shouldPlay = resumeAfterSeek && state.inViewport && !document.hidden;
+    seekPreview = null;
+    resumeAfterSeek = false;
+    const token = ++state.epoch;
+    state.phase = "resetting";
+    videos.forEach(video => video.pause());
+    updateUI();
+
+    try {
+      await Promise.all(videos.map(video =>
+        seekVideo(video, Math.min(requested, Math.max(0, video.duration - 0.01)), token)
+      ));
+      if (token !== state.epoch) return;
+
+      state.phase = shouldPlay ? "playing" : "paused";
+      updateUI();
+      if (shouldPlay) await playCurrentMode(token);
+    } catch (error) {
+      if (token !== state.epoch) return;
+      failPlayback("Could not seek the video group.", error);
+    }
+  }
+
   function suspendGroup() {
     if (!loaded() || ["loading", "error", "ended"].includes(state.phase)) return;
     state.epoch++;
@@ -457,6 +534,11 @@
   function handlePagePresence() {
     if (!loaded()) {
       void initializeIfReady();
+      return;
+    }
+
+    if (seekPreview !== null) {
+      if (!state.inViewport || document.hidden) suspendGroup();
       return;
     }
 
@@ -483,6 +565,17 @@
   restartButton.addEventListener("click", () => {
     void resetGroup(true);
   });
+
+  if (method === "sorting_rgb") {
+    seekInput.addEventListener("input", previewSeek);
+    seekInput.addEventListener("change", () => { void commitSeek(); });
+    // A click on the thumb without a value change may not fire `change`.
+    ["pointerup", "pointercancel", "blur"].forEach(event => {
+      seekInput.addEventListener(event, () => {
+        setTimeout(() => { void commitSeek(); }, 0);
+      });
+    });
+  }
 
   videos.forEach((v, index) => {
     v.muted = true;
