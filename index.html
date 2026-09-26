@@ -112,7 +112,7 @@
     ],
     sorting_3dsg: [
       "sorting_3dsg/robot_view.mp4",
-      "sorting_3dsg/3dbbox_UI.mp4",
+      "sorting_3dsg/edge_view.mp4",
       "sorting_3dsg/slm_conversation.mp4"
     ],
     sorting_2dsg: [
@@ -135,8 +135,8 @@
       { video: 2, start: 0 }
     ],
     sorting_3dsg: [
-      { video: 1, start: 0 },
       { video: 0, start: 0 },
+      { video: 1, start: 0 },
       { video: 2, start: 0 }
     ]
   };
@@ -600,7 +600,7 @@
         // Avoid mixing newly replaced Image media with an older Pages cache.
         const cacheVersion = method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
-          : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "slides-parallel-cfr-v5");
+          : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "desktop-3dsg-v1");
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
