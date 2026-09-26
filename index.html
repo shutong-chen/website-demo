@@ -16,11 +16,8 @@
   main { max-width: 1400px; margin: auto; }
   .videos {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
-  }
-  body.rgb-method .videos {
     grid-template-columns: minmax(0, 870fr) minmax(0, 870fr) minmax(0, 752fr);
+    gap: 24px;
   }
   h2 {
     margin: 0 0 16px;
@@ -33,12 +30,10 @@
     width: 100%;
     aspect-ratio: 4 / 3;
     object-fit: contain;
-    background: #111;
+    background: #fff;
   }
-  body.rgb-method video { background: #fff; }
   body.rgb-method .videos section:nth-child(-n+2) video { aspect-ratio: 870 / 652; }
-  body.rgb-method .videos section:nth-child(3) video { aspect-ratio: 900 / 780; }
-  body.hide-labels h2 { display: none; }
+  .videos section:nth-child(3) video { aspect-ratio: 900 / 780; }
   .controls {
     display: flex;
     justify-content: center;
@@ -64,7 +59,6 @@
     gap: 12px;
     margin-top: 12px;
   }
-  .seek-row[hidden] { display: none; }
   #seek {
     flex: 1;
     min-width: 0;
@@ -75,7 +69,6 @@
   .seek-row #clock { flex: none; white-space: nowrap; }
   @media (max-width: 640px) {
     .videos { grid-template-columns: 1fr; }
-    body.rgb-method .videos { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -91,11 +84,11 @@
       <video muted playsinline preload="auto" aria-label="Edge View"></video>
     </section>
     <section>
-      <h2>LLM Interface</h2>
-      <video muted playsinline preload="auto" aria-label="LLM Interface"></video>
+      <h2>SLM Interface</h2>
+      <video muted playsinline preload="auto" aria-label="SLM Interface"></video>
     </section>
   </div>
-  <div class="seek-row" id="seek-row" hidden>
+  <div class="seek-row" id="seek-row">
     <input id="seek" type="range" min="0" max="100" step="0.01" value="0"
            disabled aria-label="Video playback position">
   </div>
@@ -149,17 +142,15 @@
     ]
   };
 
-  const VIDEO_LABELS = ["Robot View", "Edge View", "LLM Interface"];
   const AUTO_PLAY = true;
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
+  const interfaceLabel = method === "sorting_rgb" ? "VLM Interface" : "SLM Interface";
+  const VIDEO_LABELS = ["Robot View", "Edge View", interfaceLabel];
   if (method === "sorting_rgb") document.body.classList.add("rgb-method");
-  if (params.get("labels") === "0" && method !== "sorting_rgb") document.body.classList.add("hide-labels");
-  if (method === "sorting_rgb") {
-    const vlm = document.querySelector(".videos section:nth-child(3)");
-    vlm.querySelector("h2").textContent = "VLM Interface";
-    vlm.querySelector("video").setAttribute("aria-label", "VLM Interface");
-  }
+  const interfaceSection = document.querySelector(".videos section:nth-child(3)");
+  interfaceSection.querySelector("h2").textContent = interfaceLabel;
+  interfaceSection.querySelector("video").setAttribute("aria-label", interfaceLabel);
   const playbackItems = PLAYBACK_ITEMS[method];
   const sequentialPlayback = false;
   const videos = [...document.querySelectorAll("video")];
@@ -170,10 +161,7 @@
   const seekInput = document.getElementById("seek");
   const clock = document.getElementById("clock");
   const main = document.querySelector("main");
-  if (method === "sorting_rgb") {
-    seekRow.hidden = false;
-    seekRow.append(clock);
-  }
+  seekRow.append(clock);
   let sourcesReady = false;
   let failed = false;
   let seekPreview = null;
@@ -210,9 +198,7 @@
     playButton.disabled = !ready || previewing || state.phase !== "paused";
     pauseButton.disabled = !ready || previewing || state.phase !== "playing";
     restartButton.disabled = !ready || previewing || state.phase === "resetting";
-    if (method === "sorting_rgb") {
-      seekInput.disabled = !ready || state.phase === "resetting";
-    }
+    seekInput.disabled = !ready || state.phase === "resetting";
 
     if (failed || state.phase === "error") {
       clock.textContent = "Playback error";
@@ -250,7 +236,6 @@
       return;
     }
 
-    const unfinished = videos.filter(video => !video.ended).length;
     const elapsed = Math.max(...playbackItems.map(item =>
       Math.max(0, videos[item.video].currentTime - item.start)
     ));
@@ -258,24 +243,12 @@
       Math.max(0, videos[item.video].duration - item.start)
     ));
 
-    if (method === "sorting_rgb") {
-      const shown = previewing ? seekPreview : (state.phase === "ended" ? total : elapsed);
-      seekInput.max = String(total);
-      if (!previewing) seekInput.value = String(Math.min(shown, total));
-      seekInput.setAttribute("aria-valuetext", `${format(shown)} of ${format(total)}`);
-      clock.textContent = `${format(shown)} / ${format(total)}`;
-      clock.title = "Playback time";
-      return;
-    }
-
-    if (state.phase === "ended") {
-      clock.textContent = `Finished · ${format(total)}`;
-      clock.title = "Playback finished";
-    } else {
-      const status = state.phase === "paused" ? "Paused" : "Playing";
-      clock.textContent = `${status} · ${unfinished}/${videos.length} active · ${format(elapsed)} / ${format(total)}`;
-      clock.title = "Shared playback controls";
-    }
+    const shown = previewing ? seekPreview : (state.phase === "ended" ? total : elapsed);
+    seekInput.max = String(total);
+    if (!previewing) seekInput.value = String(Math.min(shown, total));
+    seekInput.setAttribute("aria-valuetext", `${format(shown)} of ${format(total)}`);
+    clock.textContent = `${format(shown)} / ${format(total)}`;
+    clock.title = "Playback time";
   }
 
   function failPlayback(message, error) {
@@ -481,7 +454,7 @@
   }
 
   function previewSeek() {
-    if (method !== "sorting_rgb" || !loaded() || state.phase === "resetting") return;
+    if (!loaded() || state.phase === "resetting") return;
 
     if (seekPreview === null) {
       resumeAfterSeek = state.phase === "playing";
@@ -508,8 +481,12 @@
     updateUI();
 
     try {
-      await Promise.all(videos.map(video =>
-        seekVideo(video, Math.min(requested, Math.max(0, video.duration - 0.01)), token)
+      await Promise.all(playbackItems.map(item =>
+        seekVideo(
+          videos[item.video],
+          Math.min(item.start + requested, Math.max(0, videos[item.video].duration - 0.01)),
+          token
+        )
       ));
       if (token !== state.epoch) return;
 
@@ -566,16 +543,14 @@
     void resetGroup(true);
   });
 
-  if (method === "sorting_rgb") {
-    seekInput.addEventListener("input", previewSeek);
-    seekInput.addEventListener("change", () => { void commitSeek(); });
-    // A click on the thumb without a value change may not fire `change`.
-    ["pointerup", "pointercancel", "blur"].forEach(event => {
-      seekInput.addEventListener(event, () => {
-        setTimeout(() => { void commitSeek(); }, 0);
-      });
+  seekInput.addEventListener("input", previewSeek);
+  seekInput.addEventListener("change", () => { void commitSeek(); });
+  // A click on the thumb without a value change may not fire `change`.
+  ["pointerup", "pointercancel", "blur"].forEach(event => {
+    seekInput.addEventListener(event, () => {
+      setTimeout(() => { void commitSeek(); }, 0);
     });
-  }
+  });
 
   videos.forEach((v, index) => {
     v.muted = true;
