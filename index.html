@@ -37,7 +37,7 @@
   }
   body.rgb-method video { background: #fff; }
   body.rgb-method .videos section:nth-child(-n+2) video { aspect-ratio: 870 / 652; }
-  body.rgb-method .videos section:nth-child(3) video { aspect-ratio: 752 / 652; }
+  body.rgb-method .videos section:nth-child(3) video { aspect-ratio: 900 / 780; }
   body.hide-labels h2 { display: none; }
   .controls {
     display: flex;
@@ -95,7 +95,7 @@
   const VIDEO_GROUPS = {
     sorting_rgb: [
       "sorting_rgb/robot_view.mp4",
-      "sorting_rgb/rgb_images.mp4",
+      "sorting_rgb/edge_view.mp4",
       "sorting_rgb/llm_conversation.mp4"
     ],
     sorting_3dsg: [
@@ -532,7 +532,7 @@
         const url = new URL(path, document.baseURI);
         // Avoid mixing newly replaced Image media with an older Pages cache.
         const cacheVersion = method === "sorting_rgb"
-          ? (path.endsWith("/llm_conversation.mp4") ? "vlm-hq-v1" : "landscape-crops-v1")
+          ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
           : "slides-parallel-cfr-v5";
         url.searchParams.set("player", cacheVersion);
 
