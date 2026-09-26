@@ -32,6 +32,12 @@
     object-fit: contain;
     background: #111;
   }
+  .videos.single-media { column-gap: 0; row-gap: 16px; }
+  .videos.single-media h2 { margin-bottom: 0; }
+  .videos.single-media > video {
+    grid-column: 1 / -1;
+    aspect-ratio: 4 / 1;
+  }
   .controls {
     display: flex;
     justify-content: center;
@@ -53,6 +59,7 @@
   #clock { font-variant-numeric: tabular-nums; }
   @media (max-width: 640px) {
     .videos { grid-template-columns: 1fr; }
+    .videos.single-media { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
 </style>
 </head>
@@ -86,9 +93,7 @@
   // One page per Google Sites row, selected by ?method=...
   const VIDEO_GROUPS = {
     sorting_rgb: [
-      "sorting_rgb/robot_view.mp4",
-      "sorting_rgb/rgb_images.mp4",
-      "sorting_rgb/llm_conversation.mp4"
+      "sorting_rgb/ppt_recorded_triptych.mp4"
     ],
     sorting_3dsg: [
       "sorting_3dsg/robot_view.mp4",
@@ -102,13 +107,11 @@
     ]
   };
 
-  // Per-video trim points. PowerPoint starts all three Image videos together
-  // after one click on the slide; video indexes are Robot, Edge, LLM.
+  // PowerPoint's three Image videos are captured into one synchronized file.
+  // The other methods retain their existing three-video playback settings.
   const PLAYBACK_ITEMS = {
     sorting_rgb: [
-      { video: 0, start: 0 },
-      { video: 1, start: 0 },
-      { video: 2, start: 0 }
+      { video: 0, start: 0 }
     ],
     sorting_2dsg: [
       { video: 2, start: 2.2652687 },
@@ -127,13 +130,24 @@
   const method = new URLSearchParams(location.search).get("method") || "sorting_rgb";
   const playbackItems = PLAYBACK_ITEMS[method];
   const sequentialPlayback = false;
+  if (method === "sorting_rgb") {
+    const grid = document.querySelector(".videos");
+    grid.classList.add("single-media");
+    grid.querySelectorAll("section video").forEach(video => video.remove());
+    const composite = document.createElement("video");
+    composite.muted = true;
+    composite.playsInline = true;
+    composite.preload = "auto";
+    composite.setAttribute("aria-label", "Synchronized Robot View, Edge View, and LLM Interface");
+    grid.append(composite);
+  }
   const videos = [...document.querySelectorAll("video")];
   const playButton = document.getElementById("play");
   const pauseButton = document.getElementById("pause");
   const restartButton = document.getElementById("restart");
   const clock = document.getElementById("clock");
   const main = document.querySelector("main");
-  let filesDownloaded = false;
+  let sourcesReady = false;
   let failed = false;
   const state = {
     phase: "loading",
@@ -147,7 +161,7 @@
   const objectURLs = [];
   const downloadController = new AbortController();
 
-  const loaded = () => Boolean(playbackItems) && filesDownloaded && !failed && videos.every(v =>
+  const loaded = () => Boolean(playbackItems) && sourcesReady && !failed && videos.every(v =>
     !v.error && v.readyState >= 2 &&
     Number.isFinite(v.duration) && v.duration > 0
   );
@@ -174,8 +188,8 @@
     }
 
     if (!ready) {
-      clock.textContent = "Loading videos...";
-      clock.title = "Waiting for all three complete video files";
+      clock.textContent = videos.length === 1 ? "Loading video..." : "Loading videos...";
+      clock.title = "Waiting for video data";
       return;
     }
 
@@ -213,11 +227,11 @@
 
     if (state.phase === "ended") {
       clock.textContent = `Finished · ${format(total)}`;
-      clock.title = "All three videos finished";
+      clock.title = "Playback finished";
     } else {
-      const status = state.phase === "paused" ? "Paused" : "Playing together";
-      clock.textContent = `${status} · ${unfinished}/3 active · ${format(elapsed)} / ${format(total)}`;
-      clock.title = "All three videos share the same playback controls";
+      const status = state.phase === "paused" ? "Paused" : "Playing";
+      clock.textContent = `${status} · ${unfinished}/${videos.length} active · ${format(elapsed)} / ${format(total)}`;
+      clock.title = videos.length === 1 ? "One synchronized video" : "Shared playback controls";
     }
   }
 
@@ -298,8 +312,7 @@
     playButton.title = "";
     updateUI();
 
-    // Calling play() for every video before awaiting any of the promises keeps
-    // their starts as close together as the browser allows.
+    // Other methods still start their three videos as closely as possible.
     const results = await Promise.allSettled(playable.map(video => video.play()));
 
     // A Pause or Restart may happen before the play promises settle.
@@ -441,7 +454,7 @@
 
     if (state.inViewport && !document.hidden) {
       // Entering this embedded row is equivalent to entering its PowerPoint
-      // slide: all three videos restart together.
+      // slide: its video group restarts together.
       void resetGroup(AUTO_PLAY);
     } else {
       suspendGroup();
@@ -493,7 +506,8 @@
     });
   });
 
-  // Download complete original files before assigning any video source.
+  // Stream the single fast-start MP4 progressively. Other methods keep their
+  // previous full-download behavior to avoid changing their playback timing.
   async function loadCompleteFiles() {
     const timeout = setTimeout(() => downloadController.abort(), 180000);
 
@@ -505,7 +519,17 @@
         throw new Error(`Unknown video method: ${method}`);
       }
 
-      playButton.title = "Waiting for all three complete video files.";
+      playButton.title = "Waiting for video data.";
+
+      if (method === "sorting_rgb") {
+        const url = new URL(VIDEO_GROUPS[method][0], document.baseURI);
+        url.searchParams.set("player", "ppt-recorded-triptych-v1");
+        videos[0].src = url.href;
+        sourcesReady = true;
+        videos[0].load();
+        updateUI();
+        return;
+      }
 
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
@@ -535,7 +559,7 @@
       // Use the original downloaded bytes without re-encoding.
       const urls = blobs.map(blob => URL.createObjectURL(blob));
       objectURLs.push(...urls);
-      filesDownloaded = true;
+      sourcesReady = true;
 
       urls.forEach((url, i) => {
         videos[i].src = url;
