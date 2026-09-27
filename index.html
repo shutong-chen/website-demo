@@ -600,7 +600,7 @@
         // Avoid mixing newly replaced Image media with an older Pages cache.
         const cacheVersion = method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
-          : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "desktop-3dsg-v1");
+          : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "landscape-slide3-trim-v1");
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
