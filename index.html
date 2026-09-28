@@ -121,6 +121,11 @@
       "sorting_rgb/edge_view.mp4",
       "sorting_rgb/llm_conversation.mp4"
     ],
+    sorting_3dbbox: [
+      "sorting_3dbbox/robot_view.mp4",
+      "sorting_3dbbox/edge_view.mp4",
+      "sorting_3dbbox/llm_conversation.mp4"
+    ],
     sorting_3dsg: [
       "sorting_3dsg/robot_view.mp4",
       "sorting_3dsg/edge_view.mp4",
@@ -140,6 +145,11 @@
       { video: 1, start: 0 },
       { video: 2, start: 0 }
     ],
+    sorting_3dbbox: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
     sorting_2dsg: [
       { video: 0, start: 0 },
       { video: 1, start: 0 },
@@ -155,10 +165,11 @@
   const AUTO_PLAY = true;
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
-  const interfaceLabel = method === "sorting_rgb" ? "VLM Interface" : "SLM Interface";
+  const interfaceLabel = method === "sorting_rgb" ? "VLM Interface"
+    : method === "sorting_3dbbox" ? "LLM Interface" : "SLM Interface";
   const VIDEO_LABELS = ["Robot View", "Edge View", interfaceLabel];
   if (method === "sorting_rgb") document.body.classList.add("rgb-method");
-  if (method === "sorting_rgb" && params.get("layout") === "stacked-vlm") {
+  if (Array.isArray(VIDEO_GROUPS[method]) && params.get("layout") === "stacked-vlm") {
     document.body.classList.add("stacked-vlm");
   }
   const interfaceSection = document.querySelector(".videos section:nth-child(3)");
