@@ -34,6 +34,15 @@
   }
   body.rgb-method .videos section:nth-child(-n+2) video { aspect-ratio: 870 / 652; }
   .videos section:nth-child(3) video { aspect-ratio: 900 / 780; }
+  body.stacked-vlm .videos {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+  body.stacked-vlm .videos section:nth-child(1) { grid-area: 1 / 1; }
+  body.stacked-vlm .videos section:nth-child(2) { grid-area: 2 / 1; }
+  body.stacked-vlm .videos section:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
   .controls {
     display: flex;
     justify-content: center;
@@ -69,6 +78,8 @@
   .seek-row #clock { flex: none; white-space: nowrap; }
   @media (max-width: 640px) {
     .videos { grid-template-columns: 1fr; }
+    body.stacked-vlm .videos { grid-template-columns: 1fr; }
+    body.stacked-vlm .videos section { grid-column: auto; grid-row: auto; }
   }
 </style>
 </head>
@@ -147,6 +158,9 @@
   const interfaceLabel = method === "sorting_rgb" ? "VLM Interface" : "SLM Interface";
   const VIDEO_LABELS = ["Robot View", "Edge View", interfaceLabel];
   if (method === "sorting_rgb") document.body.classList.add("rgb-method");
+  if (method === "sorting_rgb" && params.get("layout") === "stacked-vlm") {
+    document.body.classList.add("stacked-vlm");
+  }
   const interfaceSection = document.querySelector(".videos section:nth-child(3)");
   interfaceSection.querySelector("h2").textContent = interfaceLabel;
   interfaceSection.querySelector("video").setAttribute("aria-label", interfaceLabel);
