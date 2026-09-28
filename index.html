@@ -147,8 +147,8 @@
     ],
     sorting_3dbbox: [
       { video: 0, start: 0 },
-      // Match the additional Edge-only start trim in TVT_Testbed slide 4.
-      { video: 1, start: 1.1016856 },
+      // The slide 4 Edge trim is already baked into edge_view.mp4.
+      { video: 1, start: 0 },
       { video: 2, start: 0 }
     ],
     sorting_2dsg: [
@@ -623,10 +623,11 @@
 
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
-        // Avoid mixing newly replaced Image media with an older Pages cache.
+        // Avoid mixing newly replaced media with an older Pages cache.
         const cacheVersion = method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
-          : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "landscape-slide3-trim-v1");
+          : (method === "sorting_3dbbox" ? "ppt-slide4-baked-trim-v1"
+            : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "landscape-slide3-trim-v1"));
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
