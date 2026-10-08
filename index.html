@@ -135,6 +135,11 @@
       "sorting_2dsg/robot_view.mp4",
       "sorting_2dsg/edge_view.mp4",
       "sorting_2dsg/slm_conversation.mp4"
+    ],
+    stacking_2dsg: [
+      "stacking_2dsg/robot_view.mp4",
+      "stacking_2dsg/2dsg_black_view.mp4",
+      "stacking_2dsg/slm_conversation.mp4"
     ]
   };
 
@@ -152,6 +157,11 @@
       { video: 2, start: 0 }
     ],
     sorting_2dsg: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
+    stacking_2dsg: [
       { video: 0, start: 0 },
       { video: 1, start: 0 },
       { video: 2, start: 0 }
@@ -627,7 +637,8 @@
         const cacheVersion = method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
           : (method === "sorting_3dbbox" ? "ppt-slide4-baked-trim-v1"
-            : (method === "sorting_2dsg" ? "three-view-split-hd-v1" : "landscape-slide3-trim-v1"));
+            : (method === "sorting_2dsg" ? "three-view-split-hd-v1"
+              : (method === "stacking_2dsg" ? "stacking-2dsg-v1" : "landscape-slide3-trim-v1")));
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
