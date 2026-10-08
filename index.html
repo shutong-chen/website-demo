@@ -145,6 +145,11 @@
       "stacking_rgb/robot_view.mp4",
       "stacking_rgb/rgb_images.mp4",
       "stacking_rgb/llm_conversation.mp4"
+    ],
+    stacking_3dbbox: [
+      "stacking_3dbbox/robot_view.mp4",
+      "stacking_3dbbox/edge_view.mp4",
+      "stacking_3dbbox/llm_conversation.mp4"
     ]
   };
 
@@ -176,6 +181,11 @@
       { video: 1, start: 0 },
       { video: 2, start: 0 }
     ],
+    stacking_3dbbox: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
     sorting_3dsg: [
       { video: 0, start: 0 },
       { video: 1, start: 0 },
@@ -187,7 +197,7 @@
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
   const interfaceLabel = method === "sorting_rgb" || method === "stacking_rgb" ? "VLM Interface"
-    : method === "sorting_3dbbox" ? "LLM Interface" : "SLM Interface";
+    : method === "sorting_3dbbox" || method === "stacking_3dbbox" ? "LLM Interface" : "SLM Interface";
   const VIDEO_LABELS = ["Robot View", "Edge View", interfaceLabel];
   if (method === "sorting_rgb" || method === "stacking_rgb") document.body.classList.add("rgb-method");
   if (Array.isArray(VIDEO_GROUPS[method]) && params.get("layout") === "stacked-vlm") {
@@ -649,7 +659,8 @@
           : (method === "sorting_3dbbox" ? "ppt-slide4-baked-trim-v1"
             : (method === "sorting_2dsg" ? "three-view-split-hd-v1"
               : (method === "stacking_2dsg" ? "stacking-2dsg-v1"
-                : (method === "stacking_rgb" ? "stacking-rgb-slide10-cfr30-v2" : "landscape-slide3-trim-v1"))));
+                : (method === "stacking_rgb" ? "stacking-rgb-slide10-cfr30-v2"
+                  : (method === "stacking_3dbbox" ? "stacking-3dbbox-slide11-cfr30-v1" : "landscape-slide3-trim-v1")))));
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
