@@ -173,6 +173,16 @@
       "stacking_fault/3dsg/robot_view.mp4",
       "stacking_fault/3dsg/3dbbox_UI.mp4",
       "stacking_fault/3dsg/slm_conversation.mp4"
+    ],
+    sorting_fault_rgb: [
+      "sorting_fault/image/robot_view.mp4",
+      "sorting_fault/image/rgb_images.mp4",
+      "sorting_fault/image/llm_conversation.mp4"
+    ],
+    sorting_fault_3dsg: [
+      "sorting_fault/3dsg/robot_view.mp4",
+      "sorting_fault/3dsg/3dbbox_UI.mp4",
+      "sorting_fault/3dsg/slm_conversation.mp4"
     ]
   };
 
@@ -232,6 +242,16 @@
       { video: 0, start: 0 },
       { video: 1, start: 0 },
       { video: 2, start: 0 }
+    ],
+    sorting_fault_rgb: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
+    sorting_fault_3dsg: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
     ]
   };
 
@@ -239,7 +259,7 @@
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
   const isDigitalTwin = method === "stacking_digital_twin";
-  const isRGB = method === "sorting_rgb" || method === "stacking_rgb" || method === "stacking_fault_rgb";
+  const isRGB = method === "sorting_rgb" || method === "stacking_rgb" || method === "stacking_fault_rgb" || method === "sorting_fault_rgb";
   const interfaceLabel = isRGB ? "VLM Interface"
     : method === "sorting_3dbbox" || method === "stacking_3dbbox" ? "LLM Interface" : "SLM Interface";
   const VIDEO_LABELS = isDigitalTwin
@@ -708,7 +728,9 @@
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
         // Avoid mixing newly replaced media with an older Pages cache.
-        const cacheVersion = method === "stacking_fault_rgb" || method === "stacking_fault_3dsg"
+        const cacheVersion = method === "sorting_fault_rgb" || method === "sorting_fault_3dsg"
+          ? "slide16-cfr30-v1"
+          : method === "stacking_fault_rgb" || method === "stacking_fault_3dsg"
           ? "slide17-cfr30-v1"
           : method === "stacking_digital_twin"
           ? "stacking-dt-slide14-cfr30-v1"
