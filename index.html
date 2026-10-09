@@ -164,6 +164,10 @@
       "stacking_digital_twin/robot_view.mp4",
       "stacking_digital_twin/mujoco_digital_twin.mp4"
     ],
+    sorting_digital_twin: [
+      "sorting_digital_twin/robot_view.mp4",
+      "sorting_digital_twin/mujoco_digital_twin.mp4"
+    ],
     stacking_fault_rgb: [
       "stacking_fault/image/robot_view.mp4",
       "stacking_fault/image/rgb_images.mp4",
@@ -233,6 +237,10 @@
       { video: 0, start: 0 },
       { video: 1, start: 0 }
     ],
+    sorting_digital_twin: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 }
+    ],
     stacking_fault_rgb: [
       { video: 0, start: 0 },
       { video: 1, start: 0 },
@@ -258,7 +266,7 @@
   const AUTO_PLAY = true;
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
-  const isDigitalTwin = method === "stacking_digital_twin";
+  const isDigitalTwin = method === "stacking_digital_twin" || method === "sorting_digital_twin";
   const isRGB = method === "sorting_rgb" || method === "stacking_rgb" || method === "stacking_fault_rgb" || method === "sorting_fault_rgb";
   const interfaceLabel = isRGB ? "VLM Interface"
     : method === "sorting_3dbbox" || method === "stacking_3dbbox" ? "LLM Interface" : "SLM Interface";
@@ -734,6 +742,8 @@
           ? "slide17-cfr30-v1"
           : method === "stacking_digital_twin"
           ? "stacking-dt-slide14-cfr30-v1"
+          : method === "sorting_digital_twin"
+          ? "sorting-dt-slide8-cfr30-v1"
           : method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
           : (method === "sorting_3dbbox" ? "ppt-slide4-baked-trim-v1"
