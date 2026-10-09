@@ -150,6 +150,11 @@
       "stacking_3dbbox/robot_view.mp4",
       "stacking_3dbbox/edge_view.mp4",
       "stacking_3dbbox/llm_conversation.mp4"
+    ],
+    stacking_3dsg: [
+      "stacking_3dsg/robot_view.mp4",
+      "stacking_3dsg/edge_view.mp4",
+      "stacking_3dsg/slm_conversation.mp4"
     ]
   };
 
@@ -182,6 +187,11 @@
       { video: 2, start: 0 }
     ],
     stacking_3dbbox: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
+    stacking_3dsg: [
       { video: 0, start: 0 },
       { video: 1, start: 0 },
       { video: 2, start: 0 }
@@ -660,7 +670,8 @@
             : (method === "sorting_2dsg" ? "three-view-split-hd-v1"
               : (method === "stacking_2dsg" ? "stacking-2dsg-v1"
                 : (method === "stacking_rgb" ? "stacking-rgb-slide10-cfr30-v2"
-                  : (method === "stacking_3dbbox" ? "stacking-3dbbox-slide11-cfr30-v1" : "landscape-slide3-trim-v1")))));
+                  : (method === "stacking_3dbbox" ? "stacking-3dbbox-slide11-cfr30-v1"
+                    : (method === "stacking_3dsg" ? "stacking-3dsg-slide13-cfr30-v1" : "landscape-slide3-trim-v1"))))));
         url.searchParams.set("player", cacheVersion);
 
         const response = await fetch(url, {
