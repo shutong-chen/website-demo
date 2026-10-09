@@ -163,6 +163,16 @@
     stacking_digital_twin: [
       "stacking_digital_twin/robot_view.mp4",
       "stacking_digital_twin/mujoco_digital_twin.mp4"
+    ],
+    stacking_fault_rgb: [
+      "stacking_fault/image/robot_view.mp4",
+      "stacking_fault/image/rgb_images.mp4",
+      "stacking_fault/image/llm_conversation.mp4"
+    ],
+    stacking_fault_3dsg: [
+      "stacking_fault/3dsg/robot_view.mp4",
+      "stacking_fault/3dsg/3dbbox_UI.mp4",
+      "stacking_fault/3dsg/slm_conversation.mp4"
     ]
   };
 
@@ -212,6 +222,16 @@
     stacking_digital_twin: [
       { video: 0, start: 0 },
       { video: 1, start: 0 }
+    ],
+    stacking_fault_rgb: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
+    ],
+    stacking_fault_3dsg: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 },
+      { video: 2, start: 0 }
     ]
   };
 
@@ -219,12 +239,13 @@
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
   const isDigitalTwin = method === "stacking_digital_twin";
-  const interfaceLabel = method === "sorting_rgb" || method === "stacking_rgb" ? "VLM Interface"
+  const isRGB = method === "sorting_rgb" || method === "stacking_rgb" || method === "stacking_fault_rgb";
+  const interfaceLabel = isRGB ? "VLM Interface"
     : method === "sorting_3dbbox" || method === "stacking_3dbbox" ? "LLM Interface" : "SLM Interface";
   const VIDEO_LABELS = isDigitalTwin
     ? ["Robot View", "Digital Twin"]
     : ["Robot View", "Edge View", interfaceLabel];
-  if (method === "sorting_rgb" || method === "stacking_rgb") document.body.classList.add("rgb-method");
+  if (isRGB) document.body.classList.add("rgb-method");
   if (!isDigitalTwin && Array.isArray(VIDEO_GROUPS[method]) && params.get("layout") === "stacked-vlm") {
     document.body.classList.add("stacked-vlm");
   }
@@ -687,7 +708,9 @@
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
         // Avoid mixing newly replaced media with an older Pages cache.
-        const cacheVersion = method === "stacking_digital_twin"
+        const cacheVersion = method === "stacking_fault_rgb" || method === "stacking_fault_3dsg"
+          ? "slide17-cfr30-v1"
+          : method === "stacking_digital_twin"
           ? "stacking-dt-slide14-cfr30-v1"
           : method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
