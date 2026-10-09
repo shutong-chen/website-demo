@@ -43,6 +43,9 @@
     grid-column: 2;
     grid-row: 1 / span 2;
   }
+  body.dual-view .videos {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .controls {
     display: flex;
     justify-content: center;
@@ -80,6 +83,7 @@
     .videos { grid-template-columns: 1fr; }
     body.stacked-vlm .videos { grid-template-columns: 1fr; }
     body.stacked-vlm .videos section { grid-column: auto; grid-row: auto; }
+    body.dual-view .videos { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -155,10 +159,14 @@
       "stacking_3dsg/robot_view.mp4",
       "stacking_3dsg/edge_view.mp4",
       "stacking_3dsg/slm_conversation.mp4"
+    ],
+    stacking_digital_twin: [
+      "stacking_digital_twin/robot_view.mp4",
+      "stacking_digital_twin/mujoco_digital_twin.mp4"
     ]
   };
 
-  // Keep each method's three media streams on their shared playback timeline.
+  // Keep each method's media streams on their shared playback timeline.
   const PLAYBACK_ITEMS = {
     sorting_rgb: [
       { video: 0, start: 0 },
@@ -200,22 +208,37 @@
       { video: 0, start: 0 },
       { video: 1, start: 0 },
       { video: 2, start: 0 }
+    ],
+    stacking_digital_twin: [
+      { video: 0, start: 0 },
+      { video: 1, start: 0 }
     ]
   };
 
   const AUTO_PLAY = true;
   const params = new URLSearchParams(location.search);
   const method = params.get("method") || "sorting_rgb";
+  const isDigitalTwin = method === "stacking_digital_twin";
   const interfaceLabel = method === "sorting_rgb" || method === "stacking_rgb" ? "VLM Interface"
     : method === "sorting_3dbbox" || method === "stacking_3dbbox" ? "LLM Interface" : "SLM Interface";
-  const VIDEO_LABELS = ["Robot View", "Edge View", interfaceLabel];
+  const VIDEO_LABELS = isDigitalTwin
+    ? ["Robot View", "Digital Twin"]
+    : ["Robot View", "Edge View", interfaceLabel];
   if (method === "sorting_rgb" || method === "stacking_rgb") document.body.classList.add("rgb-method");
-  if (Array.isArray(VIDEO_GROUPS[method]) && params.get("layout") === "stacked-vlm") {
+  if (!isDigitalTwin && Array.isArray(VIDEO_GROUPS[method]) && params.get("layout") === "stacked-vlm") {
     document.body.classList.add("stacked-vlm");
   }
   const interfaceSection = document.querySelector(".videos section:nth-child(3)");
-  interfaceSection.querySelector("h2").textContent = interfaceLabel;
-  interfaceSection.querySelector("video").setAttribute("aria-label", interfaceLabel);
+  if (isDigitalTwin) {
+    document.body.classList.add("dual-view");
+    interfaceSection.remove();
+    const digitalTwinSection = document.querySelector(".videos section:nth-child(2)");
+    digitalTwinSection.querySelector("h2").textContent = "Digital Twin";
+    digitalTwinSection.querySelector("video").setAttribute("aria-label", "Digital Twin");
+  } else {
+    interfaceSection.querySelector("h2").textContent = interfaceLabel;
+    interfaceSection.querySelector("video").setAttribute("aria-label", interfaceLabel);
+  }
   const playbackItems = PLAYBACK_ITEMS[method];
   const sequentialPlayback = false;
   const videos = [...document.querySelectorAll("video")];
@@ -647,7 +670,7 @@
     });
   });
 
-  // Fully download all three videos before starting the group.
+  // Fully download every video before starting the group.
   async function loadCompleteFiles() {
     const timeout = setTimeout(() => downloadController.abort(), 180000);
 
@@ -664,7 +687,9 @@
       const blobs = await Promise.all(VIDEO_GROUPS[method].map(async path => {
         const url = new URL(path, document.baseURI);
         // Avoid mixing newly replaced media with an older Pages cache.
-        const cacheVersion = method === "sorting_rgb"
+        const cacheVersion = method === "stacking_digital_twin"
+          ? "stacking-dt-slide14-cfr30-v1"
+          : method === "sorting_rgb"
           ? (path.endsWith("/llm_conversation.mp4") ? "vlm-first-frame-v1" : "landscape-crops-v1")
           : (method === "sorting_3dbbox" ? "ppt-slide4-baked-trim-v1"
             : (method === "sorting_2dsg" ? "three-view-split-hd-v1"
